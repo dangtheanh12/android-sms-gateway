@@ -1,78 +1,76 @@
-name: Release
+name: PR Build
 
 on:
-  pull_request: { types: [opened, synchronize, ready_for_review] }
+  pull_request:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+concurrency:
+  group: pr-build-${{ github.head_ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    strategy:
-      matrix:
-        build-type: [release, insecure]
-    name: Build ${{ matrix.build-type }}
-    if: github.event.pull_request.draft == false
-    uses: ./.github/workflows/build-apk.yml
-    with:
-      version-name: ${{ github.sha }}
-      build-type: ${{ matrix.build-type }}
-    secrets:
-      google-services-json: ${{ secrets.GOOGLE_SERVICES_JSON }}
-      signing-key-store-base64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
-      signing-key-alias: ${{ secrets.SIGNING_KEY_ALIAS }}
-      signing-key-password: ${{ secrets.SIGNING_KEY_PASSWORD }}
-      signing-store-password: ${{ secrets.SIGNING_STORE_PASSWORD }}
-
-  release:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    needs: [build]
+
     steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: release-artifacts
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Download insecure artifacts
-        uses: actions/download-artifact@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          name: insecure-artifacts
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Upload to S3
-        uses: capcom6/upload-s3-action@master
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Setup Google Services
         env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "⚠️ GOOGLE_SERVICES_JSON secret not set. Creating dummy file."
+            echo '{}' > app/google-services.json
+          else
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+          fi
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
-          aws_key_id: ${{ secrets.AWS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY}}
-          aws_bucket: ${{ secrets.AWS_BUCKET }}
-          endpoint: ${{ secrets.AWS_ENDPOINT }}
-          source_files: |
-            ./apk/release/app-release.apk
-            ./bundle/release/app-release.aab
-            ./apk/insecure/app-insecure.apk
-            ./bundle/insecure/app-insecure.aab
-          destination_dir: apk/${{ github.event.pull_request.head.sha }}
+          name: debug-apk-${{ github.event.pull_request.head.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
 
-      - name: Find Comment
-        uses: peter-evans/find-comment@v3
-        id: fc
+      - name: Comment PR with artifact link
+        uses: actions/github-script@v7
+        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: "github-actions[bot]"
-          body-includes: Pull request artifacts
+          script: |
+            const sha = context.payload.pull_request.head.sha
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const body = `## PR Build Artifacts
 
-      - name: Create or update comment
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## 🤖 Pull request artifacts
+            | File | Commit |
+            |------|--------|
+            | [Debug APK](${runUrl}) | \`${sha}\` |
 
-            | file | commit |
-            | ---- | ------ |
-            | [`app-release.apk`](https://s3.sms-gate.app/apk/${{ github.event.pull_request.head.sha }}/app-release.apk) | ${{ github.event.pull_request.head.sha }} |
-            | [`app-release.aab`](https://s3.sms-gate.app/apk/${{ github.event.pull_request.head.sha }}/app-release.aab) | ${{ github.event.pull_request.head.sha }} |
-            | [`app-insecure.apk`](https://s3.sms-gate.app/apk/${{ github.event.pull_request.head.sha }}/app-insecure.apk) | ${{ github.event.pull_request.head.sha }} |
-            | [`app-insecure.aab`](https://s3.sms-gate.app/apk/${{ github.event.pull_request.head.sha }}/app-insecure.aab) | ${{ github.event.pull_request.head.sha }} |
+            _Artifact available in Actions tab, retention 14 days._`
 
-          edit-mode: replace
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            })
