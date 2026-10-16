@@ -26,11 +26,12 @@ import org.koin.android.ext.android.inject
 import kotlin.concurrent.thread
 
 class PingForegroundService : Service() {
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val settings: PingSettings by inject()
 
-    // ✅ THÊM: GatewaySettings để kiểm tra server URL
+    // ✅ GatewaySettings để kiểm tra server URL đã được cấu hình chưa
     private val gatewaySettings: GatewaySettings by inject()
 
     private val eventBus = get<EventBus>()
@@ -43,6 +44,7 @@ class PingForegroundService : Service() {
             newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, this.javaClass.name)
         }
     }
+
     private val wifiLock: WifiManager.WifiLock by lazy {
         (getSystemService(Context.WIFI_SERVICE) as WifiManager).createWifiLock(
             WifiManager.WIFI_MODE_FULL_HIGH_PERF,
@@ -64,7 +66,7 @@ class PingForegroundService : Service() {
 
                 Thread.sleep(interval * 1000L)
             } catch (_: Throwable) {
-
+                // Bỏ qua lỗi để thread tiếp tục vòng lặp
             }
         }
     }
@@ -73,6 +75,7 @@ class PingForegroundService : Service() {
         super.onCreate()
 
         // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
+        // Tránh acquire lock và start working thread vô ích
         if (gatewaySettings.serverUrl.isNullOrEmpty()) {
             stopSelf()
             return
@@ -106,6 +109,8 @@ class PingForegroundService : Service() {
     }
 
     // ✅ SỬA: Kiểm tra isHeld trước khi release lock để tránh crash
+    // Trường hợp service bị stopSelf() trong onCreate (khi serverUrl rỗng),
+    // lock chưa được acquire → release sẽ ném "WakeLock/WifiLock under-locked"
     override fun onDestroy() {
         stopRequested = true
         scope.cancel()
@@ -113,13 +118,16 @@ class PingForegroundService : Service() {
         try {
             workingThread.join()
         } catch (_: Throwable) {
+            // Bỏ qua nếu thread chưa start hoặc đã bị interrupt
         }
+
         if (wifiLock.isHeld) {
             wifiLock.release()
         }
         if (wakeLock.isHeld) {
             wakeLock.release()
         }
+
         stopForeground(true)
 
         super.onDestroy()
