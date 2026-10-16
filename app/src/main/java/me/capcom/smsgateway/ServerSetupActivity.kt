@@ -18,13 +18,17 @@ class ServerSetupActivity : AppCompatActivity() {
         binding = ActivityServerSetupBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Hiển thị URL hiện tại nếu đã có (trường hợp người dùng muốn thay đổi)
+        // Hiển thị URL và token hiện tại nếu đã có
         if (settings.serverUrl.isNotEmpty()) {
             binding.serverUrlInput.setText(settings.serverUrl)
+        }
+        settings.privateToken?.let {
+            binding.privateTokenInput.setText(it)
         }
 
         binding.connectButton.setOnClickListener {
             val url = binding.serverUrlInput.text.toString().trim()
+            val token = binding.privateTokenInput.text.toString().trim()
 
             // Xác thực URL
             if (url.isEmpty()) {
@@ -45,12 +49,40 @@ class ServerSetupActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Lưu URL vào cấu hình
-            settings.import(mapOf("cloud_url" to url))
+            if (!url.contains("/api/mobile/")) {
+                Toast.makeText(
+                    this,
+                    getString(R.string.server_url_note),
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
 
-            // Chuyển đến MainActivity
-            startActivity(Intent(this, MainActivity::class.java))
-            finish()
+            // Lưu cấu hình
+            try {
+                settings.saveServerConfig(
+                    url = url,
+                    token = token.ifEmpty { null }
+                )
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this,
+                    "Lỗi lưu cấu hình: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+
+            // Khởi động lại app sạch
+            restartApp()
         }
+    }
+
+    private fun restartApp() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        startActivity(intent)
+        finishAffinity()
     }
 }
