@@ -21,17 +21,22 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
+
     buildFeatures {
         viewBinding true
     }
+
+    // ✅ SIGNING CONFIG — Đã thêm null safety
     signingConfigs {
         release {
+            // Keystore nằm trong thư mục app/ (được restore bởi workflow)
             storeFile file("keystore.jks")
-            storePassword System.getenv("SIGNING_STORE_PASSWORD")
-            keyAlias System.getenv("SIGNING_KEY_ALIAS")
-            keyPassword System.getenv("SIGNING_KEY_PASSWORD")
+            storePassword System.getenv("SIGNING_STORE_PASSWORD") ?: ""
+            keyAlias System.getenv("SIGNING_KEY_ALIAS") ?: ""
+            keyPassword System.getenv("SIGNING_KEY_PASSWORD") ?: ""
         }
     }
+
     buildTypes {
         debug {
             debuggable true
@@ -55,23 +60,25 @@ android {
             manifestPlaceholders = [networkSecurityConfig: "@xml/network_security_config"]
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
     kotlinOptions {
         jvmTarget = '1.8'
     }
+
     packagingOptions {
         exclude 'META-INF/INDEX.LIST'
         exclude 'META-INF/io.netty.versions.properties'
     }
+
     namespace 'me.capcom.smsgateway'
 
     testOptions {
         unitTests {
-            // EventBus.emit logs via android.util.Log; local unit tests must not
-            // fail on the mockable android.jar "not mocked" stub.
             returnDefaultValues = true
         }
     }
@@ -107,7 +114,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:$okhttp_version")
     implementation("com.squareup.okhttp3:okhttp-sse:$okhttp_version")
 
-    // Kotlin + coroutines
     implementation "androidx.work:work-runtime-ktx:$work_version"
 
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycle_version"
@@ -126,13 +132,11 @@ dependencies {
     implementation("androidx.room:room-ktx:$room_version")
     ksp("androidx.room:room-compiler:$room_version")
 
-    // Import the Firebase BoM
     implementation platform('com.google.firebase:firebase-bom:31.1.1')
     implementation 'com.google.firebase:firebase-messaging-ktx'
 
     implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.22'
 
-    // Koin for Android
     implementation "io.insert-koin:koin-android:$koin_version"
 
     testImplementation("junit:junit:4.13.2")
