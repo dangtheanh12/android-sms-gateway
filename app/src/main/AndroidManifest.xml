@@ -95,11 +95,12 @@
             </intent-filter>
         </activity>
 
-        <!-- ✅ MÀN HÌNH NHẬP URL MÁY CHỦ RIÊNG -->
+        <!-- ✅ THÊM MỚI: Màn hình nhập URL máy chủ riêng -->
         <activity
             android:name=".ServerSetupActivity"
             android:exported="false"
             android:label="@string/server_setup_title"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.SmsGateway" />
 
         <provider
