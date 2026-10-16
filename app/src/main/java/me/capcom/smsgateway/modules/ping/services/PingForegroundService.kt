@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import me.capcom.smsgateway.R
 import me.capcom.smsgateway.domain.HealthResponse
 import me.capcom.smsgateway.modules.events.EventBus
+import me.capcom.smsgateway.modules.gateway.GatewaySettings
 import me.capcom.smsgateway.modules.health.HealthService
 import me.capcom.smsgateway.modules.notifications.NotificationsService
 import me.capcom.smsgateway.modules.ping.PingSettings
@@ -28,6 +29,9 @@ class PingForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val settings: PingSettings by inject()
+
+    // ✅ THÊM: GatewaySettings để kiểm tra server URL
+    private val gatewaySettings: GatewaySettings by inject()
 
     private val eventBus = get<EventBus>()
 
@@ -68,12 +72,25 @@ class PingForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
+        // Tránh khởi động working thread và acquire lock vô ích
+        if (gatewaySettings.serverUrl.isNullOrEmpty()) {
+            stopSelf()
+            return
+        }
+
         wakeLock.acquire()
         wifiLock.acquire()
         workingThread.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service
+        if (gatewaySettings.serverUrl.isNullOrEmpty()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val notification = notificationsSvc.makeNotification(
             this,
             NotificationsService.NOTIFICATION_ID_PING_SERVICE,
