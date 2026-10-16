@@ -14,7 +14,7 @@ class GatewaySettings(
     }
 
     var enabled: Boolean
-        get() = storage.get<Boolean>(ENABLED) ?: false
+        get() = storage.get(ENABLED) ?: false
         set(value) = storage.set(ENABLED, value)
 
     val deviceId: String?
@@ -30,8 +30,10 @@ class GatewaySettings(
 
     val username: String?
         get() = registrationInfo?.login
+
     val password: String?
         get() = registrationInfo?.password
+
     val hasPassword: Boolean
         get() = registrationInfo?.password != null
 
@@ -39,65 +41,61 @@ class GatewaySettings(
         registrationInfo = registrationInfo?.copy(password = null)
     }
 
+    // ✅ ĐÃ SỬA: Trả về chuỗi rỗng nếu chưa có cấu hình, KHÔNG dùng PUBLIC_URL mặc định
     val serverUrl: String
-        get() = storage.get<String?>(CLOUD_URL) ?: PUBLIC_URL
+        get() = storage.get(CLOUD_URL) ?: ""
+
     val privateToken: String?
-        get() = storage.get<String>(PRIVATE_TOKEN)
+        get() = storage.get(PRIVATE_TOKEN)
 
     val notificationChannel: NotificationChannel
-        get() = storage.get<NotificationChannel>(NOTIFICATION_CHANNEL) ?: NotificationChannel.AUTO
+        get() = storage.get(NOTIFICATION_CHANNEL) ?: NotificationChannel.AUTO
 
     companion object {
         private const val REGISTRATION_INFO = "REGISTRATION_INFO"
         private const val ENABLED = "ENABLED"
         private const val FCM_TOKEN = "fcm_token"
-
         private const val CLOUD_URL = "cloud_url"
         private const val PRIVATE_TOKEN = "private_token"
         private const val NOTIFICATION_CHANNEL = "notification_channel"
 
-        const val PUBLIC_URL = "https://api.sms-gate.app/mobile/v1"
+        // ✅ ĐÃ SỬA: Loại bỏ URL máy chủ công cộng
+        // Giá trị rỗng buộc ứng dụng yêu cầu người dùng nhập server riêng
+        const val PUBLIC_URL = ""
     }
 
-    override fun export(): Map<String, *> {
+    override fun export(): Map<String, Any?> {
         return mapOf(
             CLOUD_URL to serverUrl,
             NOTIFICATION_CHANNEL to notificationChannel.name,
         )
     }
 
-    override fun import(data: Map<String, *>): Boolean {
-        return data.map {
-            when (it.key) {
+    override fun import(data: Map<String, Any?>): Boolean {
+        return data.map { (key, value) ->
+            when (key) {
                 CLOUD_URL -> {
-                    val url = it.value?.toString() ?: PUBLIC_URL
-                    if (url != null && !url.startsWith("https://")) {
+                    val url = value?.toString() ?: PUBLIC_URL
+                    if (url.isNotEmpty() && !url.startsWith("https://")) {
                         throw IllegalArgumentException("url must start with https://")
                     }
-
                     val changed = serverUrl != url
-
-                    storage.set(it.key, url)
-
+                    storage.set(key, url)
                     changed
                 }
 
                 PRIVATE_TOKEN -> {
-                    val newValue = it.value?.toString()
+                    val newValue = value?.toString()
                     val changed = privateToken != newValue
-
-                    storage.set(it.key, newValue)
-
+                    storage.set(key, newValue)
                     changed
                 }
 
                 NOTIFICATION_CHANNEL -> {
-                    val newValue = it.value?.let { NotificationChannel.valueOf(it.toString()) }
+                    val newValue = value?.let { NotificationChannel.valueOf(it.toString()) }
                         ?: NotificationChannel.AUTO
                     val changed = notificationChannel != newValue
-
-                    storage.set(it.key, newValue.name)
-
+                    storage.set(key, newValue.name)
                     changed
                 }
 
