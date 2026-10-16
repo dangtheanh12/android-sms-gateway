@@ -16,8 +16,21 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Generate Debug Keystore
+        run: |
+          mkdir -p ~/.config/.android
+          keytool -genkeypair -v \
+            -keystore ~/.config/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
       - name: Get SHA1
-        run: ./gradlew signingReport
+        run: ./gradlew signingReport --no-daemon
