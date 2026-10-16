@@ -7,14 +7,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.google.android.material.tabs.TabLayoutMediator
 import me.capcom.smsgateway.databinding.ActivityMainBinding
+import me.capcom.smsgateway.helpers.LocaleHelper
+import me.capcom.smsgateway.modules.gateway.GatewaySettings
 import me.capcom.smsgateway.ui.HolderFragment
 import me.capcom.smsgateway.ui.HomeFragment
 import me.capcom.smsgateway.ui.SettingsFragment
-import me.capcom.smsgateway.helpers.LocaleHelper
+import org.koin.android.ext.android.inject
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private val settings: GatewaySettings by inject()
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LocaleHelper.onAttach(newBase))
@@ -23,24 +26,29 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // ✅ KIỂM TRA: Nếu chưa có URL máy chủ, chuyển đến màn hình nhập
+        if (settings.serverUrl.isNullOrEmpty()) {
+            startActivity(Intent(this, ServerSetupActivity::class.java))
+            finish() // Kết thúc MainActivity để người dùng không thể quay lại
+            return
+        }
+
+        // Đã có URL máy chủ, tiếp tục khởi tạo ứng dụng bình thường
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         val adapter = FragmentsAdapter(this)
         binding.viewPager.adapter = adapter
-
         TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
             when (position) {
                 0 -> tab.apply {
                     text = getString(R.string.tab_text_home)
                     setIcon(R.drawable.ic_home)
                 }
-
                 1 -> tab.apply {
                     text = getString(R.string.tab_text_messages)
                     setIcon(R.drawable.ic_sms)
                 }
-
                 2 -> tab.apply {
                     text = getString(R.string.tab_text_settings)
                     setIcon(R.drawable.ic_advanced)
@@ -58,15 +66,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun processIntent(intent: Intent) {
         val tabIndex = intent.getIntExtra(EXTRA_TAB_INDEX, TAB_INDEX_HOME)
-
         binding.viewPager.currentItem = tabIndex
     }
 
     class FragmentsAdapter(activity: AppCompatActivity) :
         androidx.viewpager2.adapter.FragmentStateAdapter(activity) {
-
         override fun getItemCount(): Int = 3
-
         override fun createFragment(position: Int): Fragment {
             return when (position) {
                 0 -> HomeFragment.newInstance()
@@ -74,14 +79,12 @@ class MainActivity : AppCompatActivity() {
                 else -> SettingsFragment.newInstance()
             }
         }
-
     }
 
     companion object {
         const val TAB_INDEX_HOME = 0
         const val TAB_INDEX_MESSAGES = 1
         const val TAB_INDEX_SETTINGS = 2
-
         private const val EXTRA_TAB_INDEX = "tabIndex"
 
         fun starter(context: Context, tabIndex: Int): Intent {
