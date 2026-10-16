@@ -41,7 +41,7 @@ class GatewaySettings(
         registrationInfo = registrationInfo?.copy(password = null)
     }
 
-    // ✅ ĐÃ SỬA: Trả về chuỗi rỗng nếu chưa có cấu hình, KHÔNG dùng PUBLIC_URL mặc định
+    // ✅ ĐÃ SỬA: Trả về chuỗi rỗng nếu chưa cấu hình, KHÔNG dùng PUBLIC_URL mặc định
     val serverUrl: String
         get() = storage.get(CLOUD_URL) ?: ""
 
@@ -51,6 +51,25 @@ class GatewaySettings(
     val notificationChannel: NotificationChannel
         get() = storage.get(NOTIFICATION_CHANNEL) ?: NotificationChannel.AUTO
 
+    /**
+     * Phương thức tiện ích để lưu URL và token trực tiếp
+     * Dùng trong ServerSetupActivity để tránh phụ thuộc vào signature import()
+     */
+    fun saveServerConfig(url: String, token: String? = null) {
+        require(url.isNotEmpty()) { "URL must not be empty" }
+        require(url.startsWith("https://")) { "URL must start with https://" }
+        storage.set(CLOUD_URL, url)
+        if (!token.isNullOrEmpty()) {
+            storage.set(PRIVATE_TOKEN, token)
+        }
+    }
+
+    fun clearServerConfig() {
+        storage.set(CLOUD_URL, null)
+        storage.set(PRIVATE_TOKEN, null)
+        storage.set(REGISTRATION_INFO, null)
+    }
+
     companion object {
         private const val REGISTRATION_INFO = "REGISTRATION_INFO"
         private const val ENABLED = "ENABLED"
@@ -59,8 +78,8 @@ class GatewaySettings(
         private const val PRIVATE_TOKEN = "private_token"
         private const val NOTIFICATION_CHANNEL = "notification_channel"
 
-        // ✅ ĐÃ SỬA: Loại bỏ URL máy chủ công cộng
-        // Giá trị rỗng buộc ứng dụng yêu cầu người dùng nhập server riêng
+        // ✅ ĐÃ LOẠI BỎ URL MÁY CHỦ CÔNG CỘNG
+        // Trả về chuỗi rỗng buộc người dùng phải nhập server riêng
         const val PUBLIC_URL = ""
     }
 
@@ -75,7 +94,7 @@ class GatewaySettings(
         return data.map { (key, value) ->
             when (key) {
                 CLOUD_URL -> {
-                    val url = value?.toString() ?: PUBLIC_URL
+                    val url = value?.toString() ?: ""
                     if (url.isNotEmpty() && !url.startsWith("https://")) {
                         throw IllegalArgumentException("url must start with https://")
                     }
