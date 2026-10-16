@@ -1,43 +1,63 @@
-name: Release
+name: Release Build
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        build-type: [release, insecure]
-    name: Build ${{ matrix.build-type }}
-    uses: ./.github/workflows/build-apk.yml
-    with:
-      version-name: ${{ github.ref_name }}
-      build-type: ${{ matrix.build-type }}
-    secrets:
-      google-services-json: ${{ secrets.GOOGLE_SERVICES_JSON }}
-      signing-key-store-base64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
-      signing-key-alias: ${{ secrets.SIGNING_KEY_ALIAS }}
-      signing-key-password: ${{ secrets.SIGNING_KEY_PASSWORD }}
-      signing-store-password: ${{ secrets.SIGNING_STORE_PASSWORD }}
-
-  release:
     runs-on: ubuntu-latest
-    needs: [build]
+
+    permissions:
+      contents: write
+
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: release-artifacts
-      - uses: actions/download-artifact@v4
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          name: insecure-artifacts
-      - name: Create Github Release
-        uses: softprops/action-gh-release@v3
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Setup Google Services
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "⚠️ GOOGLE_SERVICES_JSON secret not set. Creating dummy file."
+            echo '{}' > app/google-services.json
+          else
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+          fi
+
+      - name: Setup Signing Key
+        env:
+          SIGNING_KEY_STORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
+        run: |
+          echo "$SIGNING_KEY_STORE_BASE64" | base64 -d > app/release.keystore
+
+      - name: Build Release APK
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
-          prerelease: true
           files: |
-            ./apk/release/app-release.apk
-            ./bundle/release/app-release.aab
-            ./apk/insecure/app-insecure.apk
-            ./bundle/insecure/app-insecure.aab
+            app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
