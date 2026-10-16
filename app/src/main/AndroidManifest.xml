@@ -95,6 +95,13 @@
             </intent-filter>
         </activity>
 
+        <!-- ✅ MÀN HÌNH NHẬP URL MÁY CHỦ RIÊNG -->
+        <activity
+            android:name=".ServerSetupActivity"
+            android:exported="false"
+            android:label="@string/server_setup_title"
+            android:theme="@style/Theme.SmsGateway" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
