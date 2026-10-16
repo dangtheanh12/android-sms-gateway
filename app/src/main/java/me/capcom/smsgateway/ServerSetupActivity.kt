@@ -67,7 +67,7 @@ class ServerSetupActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Toast.makeText(
                     this,
-                    "Lỗi lưu cấu hình: ${e.message}",
+                    getString(R.string.error_saving_config, e.message ?: ""),
                     Toast.LENGTH_LONG
                 ).show()
                 return@setOnClickListener
@@ -83,6 +83,6 @@ class ServerSetupActivity : AppCompatActivity() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         startActivity(intent)
-        finishAffinity()
+        finish()
     }
 }
