@@ -73,7 +73,6 @@ class PingForegroundService : Service() {
         super.onCreate()
 
         // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
-        // Tránh khởi động working thread và acquire lock vô ích
         if (gatewaySettings.serverUrl.isNullOrEmpty()) {
             stopSelf()
             return
@@ -106,13 +105,21 @@ class PingForegroundService : Service() {
         TODO("Return the communication channel to the service.")
     }
 
+    // ✅ SỬA: Kiểm tra isHeld trước khi release lock để tránh crash
     override fun onDestroy() {
         stopRequested = true
         scope.cancel()
         workingThread.interrupt()
-        workingThread.join()
-        wifiLock.release()
-        wakeLock.release()
+        try {
+            workingThread.join()
+        } catch (_: Throwable) {
+        }
+        if (wifiLock.isHeld) {
+            wifiLock.release()
+        }
+        if (wakeLock.isHeld) {
+            wakeLock.release()
+        }
         stopForeground(true)
 
         super.onDestroy()
