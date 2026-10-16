@@ -215,7 +215,8 @@
     <string name="filter_mms_count">MMS (%1$d)</string>
     <string name="device_key">Device Key</string>
     <string name="device_keys_management">Device keys management</string>
-        <!-- ==================== SERVER SETUP ==================== -->
+
+    <!-- ==================== SERVER SETUP ==================== -->
     <string name="server_setup_title">Server Setup</string>
     <string name="server_setup_description">Enter your private SMS Gateway server address to get started.</string>
     <string name="server_url_hint" translatable="false">https://your-server.com/api/mobile/v1</string>
@@ -224,5 +225,6 @@
     <string name="server_url_required">Please enter the server address</string>
     <string name="url_must_start_with_https">URL must start with https://</string>
     <string name="server_url_summary">Your private SMS Gateway server address</string>
+    <string name="error_saving_config">Error saving config: %1$s</string>
     <!-- ==================== /SERVER SETUP ==================== -->
 </resources>
