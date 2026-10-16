@@ -2,11 +2,22 @@ package me.capcom.smsgateway.ui.settings
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.text.InputType
+import android.view.View
+import androidx.core.content.edit
+import androidx.core.view.isVisible
+import androidx.fragment.app.setFragmentResultListener
+import androidx.lifecycle.lifecycleScope
+import androidx.preference.EditTextPreference
 import androidx.preference.Preference
+import kotlinx.coroutines.launch
 import me.capcom.smsgateway.R
 import me.capcom.smsgateway.modules.gateway.GatewayService
 import me.capcom.smsgateway.modules.gateway.GatewaySettings
+import me.capcom.smsgateway.ui.dialogs.PasswordPromptDialogFragment
 import org.koin.android.ext.android.inject
+import java.net.URL
+import java.text.DateFormat
 
 class CloudServerSettingsFragment : BasePreferenceFragment() {
     private val settings: GatewaySettings by inject()
@@ -16,43 +27,182 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.cloud_server_preferences, rootKey)
 
-        // ✅ Ẩn tất cả các tùy chọn liên quan đến Cloud Server công cộng
-        // Chỉ giữ lại trường nhập URL máy chủ riêng
-        findPreference("transient.device_id")?.isVisible = false
-        findPreference("gateway.username")?.isVisible = false
-        findPreference("gateway.password")?.isVisible = false
-        findPreference("gateway.clear_password")?.isVisible = false
-        findPreference("gateway.login_code")?.isVisible = false
+        // ✅ SỬA: Không tự động gán PUBLIC_URL, hiển thị chuỗi rỗng nếu chưa cấu hình
+        findPreference("transient.device_id")?.summary = settings.deviceId ?: getString(R.string.n_a)
 
-        // ✅ Cấu hình trường nhập URL máy chủ riêng
-        findPreference("gateway.cloud_url")?.apply {
-            // Đặt tiêu đề và mô tả phù hợp
-            title = getString(R.string.server_url_title)
-            summary = getString(R.string.server_url_summary)
+        findPreference("gateway.cloud_url")?.setSummaryProvider {
+            val hostname = preferenceManager.sharedPreferences?.getString(it.key, null)
+            if (hostname.isNullOrEmpty()) {
+                // ✅ Không gán PUBLIC_URL nữa, để trống cho người dùng nhập
+                return@setSummaryProvider getString(R.string.not_set)
+            }
+            hostname
+        }
 
-            // Hiển thị URL hiện tại nếu có
+        findPreference("gateway.cloud_url")?.setOnPreferenceChangeListener { _, newValue ->
+            val value = newValue as? String
+            if (value.isNullOrEmpty()) {
+                return@setOnPreferenceChangeListener true
+            }
+            try {
+                URL(value)
+            } catch (e: Exception) {
+                showToast(getString(R.string.invalid_url))
+                return@setOnPreferenceChangeListener false
+            }
+            true
+        }
+
+        findPreference("gateway.username")?.setSummaryProvider {
+            settings.username ?: getString(R.string.not_set)
+        }
+
+        findPreference("gateway.password")?.apply {
+            isEnabled = settings.username != null
             setSummaryProvider {
-                val url = settings.serverUrl
-                if (url.isNullOrEmpty()) {
-                    getString(R.string.server_url_not_set)
-                } else {
-                    url
+                when {
+                    settings.username == null -> getString(R.string.not_registered)
+                    !settings.hasPassword -> getString(R.string.password_hidden)
+                    else -> settings.password
                 }
             }
-
-            // Xác thực URL khi người dùng thay đổi
             setOnPreferenceChangeListener { _, newValue ->
                 val value = newValue as? String
-                if (value.isNullOrEmpty()) {
-                    showToast(getString(R.string.server_url_required))
+                if (value == null || value.length < 14) {
+                    showToast(getString(R.string.password_must_be_at_least_14_characters))
                     return@setOnPreferenceChangeListener false
                 }
-                if (!value.startsWith("https://")) {
-                    showToast(getString(R.string.url_must_start_with_https))
-                    return@setOnPreferenceChangeListener false
+                if (settings.hasPassword) {
+                    changePasswordInternal(settings.password!!, value)
+                } else {
+                    showPasswordPromptDialog(
+                        getString(R.string.enter_current_password),
+                        PasswordPromptDialogFragment.ACTION_CHANGE_PASSWORD,
+                        value
+                    )
                 }
                 true
             }
         }
+
+        findPreference("gateway.clear_password")?.apply {
+            isVisible = settings.hasPassword
+            onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                settings.clearPassword()
+                isVisible = false
+                listView.adapter?.notifyDataSetChanged()
+                showToast(R.string.password_cleared)
+                true
+            }
+        }
+
+        findPreference("gateway.login_code")?.apply {
+            isVisible = settings.username != null
+            onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                if (settings.hasPassword) {
+                    requestLoginCode()
+                } else {
+                    showPasswordPromptDialog(
+                        getString(R.string.enter_current_password),
+                        PasswordPromptDialogFragment.ACTION_LOGIN_CODE
+                    )
+                }
+                true
+            }
+        }
+
+        setFragmentResultListener(PasswordPromptDialogFragment.REQUEST_KEY) { _, data ->
+            val password = PasswordPromptDialogFragment.getPassword(data)
+                ?: return@setFragmentResultListener
+            when (PasswordPromptDialogFragment.getAction(data)) {
+                PasswordPromptDialogFragment.ACTION_CHANGE_PASSWORD -> {
+                    val newPassword = PasswordPromptDialogFragment.getPayload(data)
+                    if (newPassword != null) {
+                        changePasswordInternal(password, newPassword)
+                    }
+                }
+                PasswordPromptDialogFragment.ACTION_LOGIN_CODE -> {
+                    requestLoginCode(password)
+                }
+            }
+        }
+
+        // ✅ THÊM: Ẩn các preference không cần thiết cho private server
+        findPreference("transient.device_id")?.isVisible = false
+        findPreference("gateway.login_code")?.isVisible = false
+        findPreference("gateway.clear_password")?.isVisible = false
+    }
+
+    private fun showPasswordPromptDialog(
+        message: String,
+        action: String? = null,
+        newPassword: String? = null
+    ) {
+        PasswordPromptDialogFragment.newInstance(message, action, newPassword)
+            .show(parentFragmentManager, "password_prompt")
+    }
+
+    private fun changePasswordInternal(currentPassword: String, newPassword: String) {
+        this.lifecycleScope.launch {
+            try {
+                requireActivity().findViewById<View>(R.id.progressBar).isVisible = true
+                service.changePassword(currentPassword, newPassword)
+                findPreference("gateway.clear_password")?.isVisible = settings.hasPassword
+                listView.adapter?.notifyDataSetChanged()
+                showToast(R.string.password_changed_successfully)
+            } catch (e: Exception) {
+                showToast(getString(R.string.failed_to_change_password, e.message))
+            } finally {
+                requireActivity().findViewById<View>(R.id.progressBar).isVisible = false
+            }
+        }
+    }
+
+    private fun requestLoginCode(password: String? = null) {
+        this.lifecycleScope.launch {
+            try {
+                requireActivity().findViewById<View>(R.id.progressBar).isVisible = true
+                val loginCode = if (password == null) {
+                    service.getLoginCode()
+                } else {
+                    service.getLoginCodeWithPassword(password)
+                }
+                findPreference("gateway.login_code")?.title = getString(
+                    R.string.login_code_expires,
+                    DateFormat.getDateTimeInstance().format(loginCode.validUntil)
+                )
+                findPreference("gateway.login_code")?.summary = loginCode.code
+                listView.adapter?.notifyDataSetChanged()
+                showToast(R.string.success_long_press_to_copy)
+            } catch (e: Exception) {
+                showToast(getString(R.string.failed_to_get_login_code, e.message))
+            } finally {
+                requireActivity().findViewById<View>(R.id.progressBar).isVisible = false
+            }
+        }
+    }
+
+    override fun onDisplayPreferenceDialog(preference: Preference) {
+        if (preference.key == "gateway.cloud_url") {
+            (preference as EditTextPreference).setOnBindEditTextListener {
+                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+                it.setSelectAllOnFocus(true)
+                it.selectAll()
+            }
+        }
+        if (preference.key == "gateway.private_token") {
+            (preference as EditTextPreference).setOnBindEditTextListener {
+                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                it.setSelectAllOnFocus(true)
+                it.selectAll()
+            }
+        }
+        if (preference.key == "gateway.password") {
+            (preference as EditTextPreference).setOnBindEditTextListener {
+                it.inputType = InputType.TYPE_CLASS_TEXT
+                it.text = null
+            }
+        }
+        super.onDisplayPreferenceDialog(preference)
     }
 }
