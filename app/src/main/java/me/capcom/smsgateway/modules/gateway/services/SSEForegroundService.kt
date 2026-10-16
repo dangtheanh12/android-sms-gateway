@@ -83,6 +83,13 @@ class SSEForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
+        // Tránh acquire wake lock/wifi lock vô ích
+        if (settings.serverUrl.isNullOrEmpty()) {
+            stopSelf()
+            return
+        }
+
         if (!wakeLock.isHeld) {
             wakeLock.acquire()
         }
@@ -92,6 +99,12 @@ class SSEForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service
+        if (settings.serverUrl.isNullOrEmpty()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val notification = notificationsSvc.makeNotification(
             this,
             NotificationsService.NOTIFICATION_ID_REALTIME_EVENTS,
