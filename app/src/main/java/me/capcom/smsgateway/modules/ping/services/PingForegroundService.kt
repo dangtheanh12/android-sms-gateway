@@ -31,7 +31,7 @@ class PingForegroundService : Service() {
 
     private val settings: PingSettings by inject()
 
-    // ✅ GatewaySettings để kiểm tra server URL đã được cấu hình chưa
+    // GatewaySettings để kiểm tra server URL đã được cấu hình chưa
     private val gatewaySettings: GatewaySettings by inject()
 
     private val eventBus = get<EventBus>()
@@ -74,9 +74,8 @@ class PingForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
-        // Tránh acquire lock và start working thread vô ích
-        if (gatewaySettings.serverUrl.isNullOrEmpty()) {
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token. Nếu thiếu 1 trong 2, dừng service ngay.
+        if (gatewaySettings.serverUrl.isNullOrEmpty() || gatewaySettings.registrationInfo?.token.isNullOrEmpty()) {
             stopSelf()
             return
         }
@@ -87,8 +86,8 @@ class PingForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service
-        if (gatewaySettings.serverUrl.isNullOrEmpty()) {
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
+        if (gatewaySettings.serverUrl.isNullOrEmpty() || gatewaySettings.registrationInfo?.token.isNullOrEmpty()) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -108,9 +107,6 @@ class PingForegroundService : Service() {
         TODO("Return the communication channel to the service.")
     }
 
-    // ✅ SỬA: Kiểm tra isHeld trước khi release lock để tránh crash
-    // Trường hợp service bị stopSelf() trong onCreate (khi serverUrl rỗng),
-    // lock chưa được acquire → release sẽ ném "WakeLock/WifiLock under-locked"
     override fun onDestroy() {
         stopRequested = true
         scope.cancel()
