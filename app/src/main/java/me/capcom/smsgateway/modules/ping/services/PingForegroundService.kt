@@ -28,14 +28,9 @@ import kotlin.concurrent.thread
 class PingForegroundService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
     private val settings: PingSettings by inject()
-
-    // GatewaySettings để kiểm tra server URL đã được cấu hình chưa
     private val gatewaySettings: GatewaySettings by inject()
-
     private val eventBus = get<EventBus>()
-
     private val notificationsSvc: NotificationsService by inject()
     private val healthService: HealthService by inject()
 
@@ -44,7 +39,6 @@ class PingForegroundService : Service() {
             newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, this.javaClass.name)
         }
     }
-
     private val wifiLock: WifiManager.WifiLock by lazy {
         (getSystemService(Context.WIFI_SERVICE) as WifiManager).createWifiLock(
             WifiManager.WIFI_MODE_FULL_HIGH_PERF,
@@ -63,41 +57,39 @@ class PingForegroundService : Service() {
                 scope.launch {
                     eventBus.emit(PingEvent(HealthResponse(healthService.healthCheck())))
                 }
-
                 Thread.sleep(interval * 1000L)
-            } catch (_: Throwable) {
-                // Bỏ qua lỗi để thread tiếp tục vòng lặp
-            }
+            } catch (_: Throwable) { }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        // KHÔNG dừng service ở đây để tránh lỗi ForegroundServiceDidNotStartInTimeException
+    }
 
-        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token. Nếu thiếu 1 trong 2, dừng service ngay.
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Kiểm tra an toàn
         if (gatewaySettings.serverUrl.isNullOrEmpty() || gatewaySettings.registrationInfo?.token.isNullOrEmpty()) {
+            // BẮT BUỘC: Phải gọi startForeground trước khi stopSelf để không bị Android kill app
+            val notification = notificationsSvc.makeNotification(
+                this,
+                NotificationsService.NOTIFICATION_ID_PING_SERVICE,
+                "Chưa cấu hình máy chủ hoặc chưa đăng ký thiết bị"
+            )
+            startForeground(NotificationsService.NOTIFICATION_ID_PING_SERVICE, notification)
             stopSelf()
-            return
+            return START_NOT_STICKY
         }
 
         wakeLock.acquire()
         wifiLock.acquire()
         workingThread.start()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
-        if (gatewaySettings.serverUrl.isNullOrEmpty() || gatewaySettings.registrationInfo?.token.isNullOrEmpty()) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
 
         val notification = notificationsSvc.makeNotification(
             this,
             NotificationsService.NOTIFICATION_ID_PING_SERVICE,
             getString(R.string.ping_service_is_active)
         )
-
         startForeground(NotificationsService.NOTIFICATION_ID_PING_SERVICE, notification)
 
         return super.onStartCommand(intent, flags, startId)
@@ -113,17 +105,10 @@ class PingForegroundService : Service() {
         workingThread.interrupt()
         try {
             workingThread.join()
-        } catch (_: Throwable) {
-            // Bỏ qua nếu thread chưa start hoặc đã bị interrupt
-        }
+        } catch (_: Throwable) { }
 
-        if (wifiLock.isHeld) {
-            wifiLock.release()
-        }
-        if (wakeLock.isHeld) {
-            wakeLock.release()
-        }
-
+        if (wifiLock.isHeld) wifiLock.release()
+        if (wakeLock.isHeld) wakeLock.release()
         stopForeground(true)
 
         super.onDestroy()
@@ -132,14 +117,12 @@ class PingForegroundService : Service() {
     companion object {
         fun start(context: Context) {
             val intent = Intent(context, PingForegroundService::class.java)
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
             }
         }
-
         fun stop(context: Context) {
             context.stopService(Intent(context, PingForegroundService::class.java))
         }
