@@ -83,9 +83,8 @@ class SSEForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service ngay
-        // Tránh acquire wake lock/wifi lock vô ích
-        if (settings.serverUrl.isNullOrEmpty()) {
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token. Nếu thiếu 1 trong 2, dừng service ngay.
+        if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
             stopSelf()
             return
         }
@@ -99,8 +98,8 @@ class SSEForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // ✅ GUARD: Nếu chưa cấu hình server URL, dừng service
-        if (settings.serverUrl.isNullOrEmpty()) {
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
+        if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
             stopSelf()
             return START_NOT_STICKY
         }
