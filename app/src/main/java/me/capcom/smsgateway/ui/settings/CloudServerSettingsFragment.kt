@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
-import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.fragment.app.setFragmentResultListener
 import androidx.lifecycle.lifecycleScope
@@ -27,37 +26,42 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.cloud_server_preferences, rootKey)
 
-        // ✅ SỬA: Không tự động gán PUBLIC_URL, hiển thị chuỗi rỗng nếu chưa cấu hình
-        findPreference("transient.device_id")?.summary = settings.deviceId ?: getString(R.string.n_a)
+        // ✅ Device ID — dùng findPreference<Preference>
+        findPreference<Preference>("transient.device_id")?.summary =
+            settings.deviceId ?: getString(R.string.n_a)
 
-        findPreference("gateway.cloud_url")?.setSummaryProvider {
-            val hostname = preferenceManager.sharedPreferences?.getString(it.key, null)
-            if (hostname.isNullOrEmpty()) {
-                // ✅ Không gán PUBLIC_URL nữa, để trống cho người dùng nhập
-                return@setSummaryProvider getString(R.string.not_set)
+        // ✅ Cloud URL — dùng findPreference<EditTextPreference>
+        findPreference<EditTextPreference>("gateway.cloud_url")?.apply {
+            setSummaryProvider {
+                val hostname = preferenceManager.sharedPreferences?.getString(key, null)
+                if (hostname.isNullOrEmpty()) {
+                    getString(R.string.not_set)
+                } else {
+                    hostname
+                }
             }
-            hostname
+            setOnPreferenceChangeListener { _, newValue ->
+                val value = newValue as? String
+                if (value.isNullOrEmpty()) {
+                    return@setOnPreferenceChangeListener true
+                }
+                try {
+                    URL(value)
+                } catch (e: Exception) {
+                    showToast(getString(R.string.invalid_url))
+                    return@setOnPreferenceChangeListener false
+                }
+                true
+            }
         }
 
-        findPreference("gateway.cloud_url")?.setOnPreferenceChangeListener { _, newValue ->
-            val value = newValue as? String
-            if (value.isNullOrEmpty()) {
-                return@setOnPreferenceChangeListener true
-            }
-            try {
-                URL(value)
-            } catch (e: Exception) {
-                showToast(getString(R.string.invalid_url))
-                return@setOnPreferenceChangeListener false
-            }
-            true
-        }
-
-        findPreference("gateway.username")?.setSummaryProvider {
+        // ✅ Username
+        findPreference<EditTextPreference>("gateway.username")?.setSummaryProvider {
             settings.username ?: getString(R.string.not_set)
         }
 
-        findPreference("gateway.password")?.apply {
+        // ✅ Password
+        findPreference<EditTextPreference>("gateway.password")?.apply {
             isEnabled = settings.username != null
             setSummaryProvider {
                 when {
@@ -85,7 +89,8 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
             }
         }
 
-        findPreference("gateway.clear_password")?.apply {
+        // ✅ Clear password
+        findPreference<Preference>("gateway.clear_password")?.apply {
             isVisible = settings.hasPassword
             onPreferenceClickListener = Preference.OnPreferenceClickListener {
                 settings.clearPassword()
@@ -96,7 +101,8 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
             }
         }
 
-        findPreference("gateway.login_code")?.apply {
+        // ✅ Login code
+        findPreference<Preference>("gateway.login_code")?.apply {
             isVisible = settings.username != null
             onPreferenceClickListener = Preference.OnPreferenceClickListener {
                 if (settings.hasPassword) {
@@ -127,10 +133,10 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
             }
         }
 
-        // ✅ THÊM: Ẩn các preference không cần thiết cho private server
-        findPreference("transient.device_id")?.isVisible = false
-        findPreference("gateway.login_code")?.isVisible = false
-        findPreference("gateway.clear_password")?.isVisible = false
+        // ✅ Ẩn các preference không cần thiết cho private server
+        findPreference<Preference>("transient.device_id")?.isVisible = false
+        findPreference<Preference>("gateway.login_code")?.isVisible = false
+        findPreference<Preference>("gateway.clear_password")?.isVisible = false
     }
 
     private fun showPasswordPromptDialog(
@@ -147,7 +153,7 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
             try {
                 requireActivity().findViewById<View>(R.id.progressBar).isVisible = true
                 service.changePassword(currentPassword, newPassword)
-                findPreference("gateway.clear_password")?.isVisible = settings.hasPassword
+                findPreference<Preference>("gateway.clear_password")?.isVisible = settings.hasPassword
                 listView.adapter?.notifyDataSetChanged()
                 showToast(R.string.password_changed_successfully)
             } catch (e: Exception) {
@@ -167,11 +173,13 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
                 } else {
                     service.getLoginCodeWithPassword(password)
                 }
-                findPreference("gateway.login_code")?.title = getString(
-                    R.string.login_code_expires,
-                    DateFormat.getDateTimeInstance().format(loginCode.validUntil)
-                )
-                findPreference("gateway.login_code")?.summary = loginCode.code
+                findPreference<Preference>("gateway.login_code")?.apply {
+                    title = getString(
+                        R.string.login_code_expires,
+                        DateFormat.getDateTimeInstance().format(loginCode.validUntil)
+                    )
+                    summary = loginCode.code
+                }
                 listView.adapter?.notifyDataSetChanged()
                 showToast(R.string.success_long_press_to_copy)
             } catch (e: Exception) {
@@ -183,24 +191,26 @@ class CloudServerSettingsFragment : BasePreferenceFragment() {
     }
 
     override fun onDisplayPreferenceDialog(preference: Preference) {
-        if (preference.key == "gateway.cloud_url") {
-            (preference as EditTextPreference).setOnBindEditTextListener {
-                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-                it.setSelectAllOnFocus(true)
-                it.selectAll()
+        when (preference.key) {
+            "gateway.cloud_url" -> {
+                (preference as? EditTextPreference)?.setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+                    it.setSelectAllOnFocus(true)
+                    it.selectAll()
+                }
             }
-        }
-        if (preference.key == "gateway.private_token") {
-            (preference as EditTextPreference).setOnBindEditTextListener {
-                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                it.setSelectAllOnFocus(true)
-                it.selectAll()
+            "gateway.private_token" -> {
+                (preference as? EditTextPreference)?.setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    it.setSelectAllOnFocus(true)
+                    it.selectAll()
+                }
             }
-        }
-        if (preference.key == "gateway.password") {
-            (preference as EditTextPreference).setOnBindEditTextListener {
-                it.inputType = InputType.TYPE_CLASS_TEXT
-                it.text = null
+            "gateway.password" -> {
+                (preference as? EditTextPreference)?.setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_TEXT
+                    it.text = null
+                }
             }
         }
         super.onDisplayPreferenceDialog(preference)
