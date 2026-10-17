@@ -40,7 +40,8 @@ class SSEForegroundService : Service() {
         )
     }
 
-    private val sseManager by lazy {
+    // ✅ SỬA: Tách delegate ra để có thể kiểm tra isInitialized() trong onDestroy
+    private val sseManagerDelegate = lazy {
         SSEManager(
             "${settings.serverUrl}/events",
             requireNotNull(
@@ -79,11 +80,12 @@ class SSEForegroundService : Service() {
                 }
             }
     }
+    private val sseManager by sseManagerDelegate
 
     override fun onCreate() {
         super.onCreate()
 
-        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token. Nếu thiếu 1 trong 2, dừng service ngay.
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
         if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
             stopSelf()
             return
@@ -138,7 +140,12 @@ class SSEForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        sseManager.disconnect()
+        // ✅ SỬA: Chỉ gọi disconnect() nếu sseManager ĐÃ ĐƯỢC KHỞI TẠO.
+        // Nếu bị stopSelf() từ onCreate() (do thiếu token), nó chưa được khởi tạo.
+        if (sseManagerDelegate.isInitialized()) {
+            sseManager.disconnect()
+        }
+
         if (wifiLock.isHeld) {
             wifiLock.release()
         }
