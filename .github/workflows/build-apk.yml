@@ -27,11 +27,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # ✅ FIX: Bỏ qua cài đặt gói 'tools' đã lỗi thời
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      # ✅ BỎ Setup Gradle để tránh lỗi cache service 400
-      # Nếu muốn dùng cache, có thể thêm lại sau khi GitHub fix
+        with:
+          packages: ''
 
       - name: Setup Google Services
         env:
@@ -44,7 +44,6 @@ jobs:
             echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
           fi
 
-      # ✅ SỬA: Kiểm tra bên trong run, không dùng if: với secrets
       - name: Setup Signing Key
         env:
           SIGNING_KEY_STORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
