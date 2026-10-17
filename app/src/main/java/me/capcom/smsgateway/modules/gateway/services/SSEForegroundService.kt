@@ -22,9 +22,7 @@ import org.koin.android.ext.android.inject
 
 class SSEForegroundService : Service() {
     private val settings: GatewaySettings by inject()
-
     private val eventsRouter by inject<EventsRouter>()
-
     private val notificationsSvc: NotificationsService by inject()
     private val logsService: LogsService by inject()
 
@@ -40,118 +38,83 @@ class SSEForegroundService : Service() {
         )
     }
 
-    // ✅ SỬA: Tách delegate ra để có thể kiểm tra isInitialized() trong onDestroy
     private val sseManagerDelegate = lazy {
         SSEManager(
             "${settings.serverUrl}/events",
-            requireNotNull(
-                settings.registrationInfo?.token
-            ) { "Authentication token is required for SSE connection" }
-        )
-            .apply {
-                onConnected = {
-                    Log.d("SSEForegroundService", "SSE connected, pulling pending messages")
-                    try {
-                        PullMessagesWorker.start(this@SSEForegroundService)
-                    } catch (e: Throwable) {
-                        e.printStackTrace()
-                        logsService.insert(
-                            LogEntry.Priority.ERROR,
-                            "SSEForegroundService",
-                            "Failed to start PullMessagesWorker on connect",
-                        )
-                    }
-                }
-                onEvent = { event, data ->
-                    Log.d("SSEForegroundService", "$event: $data")
-
-                    try {
-                        processEvent(event, data)
-                    } catch (e: Throwable) {
-                        e.printStackTrace()
-
-                        logsService.insert(
-                            LogEntry.Priority.ERROR,
-                            "SSEForegroundService",
-                            "Failed to process event",
-                            mapOf("event" to event, "data" to data)
-                        )
-                    }
+            requireNotNull(settings.registrationInfo?.token) { "Auth token missing" }
+        ).apply {
+            onConnected = {
+                Log.d("SSEForegroundService", "SSE connected, pulling pending messages")
+                try {
+                    PullMessagesWorker.start(this@SSEForegroundService)
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    logsService.insert(LogEntry.Priority.ERROR, "SSEForegroundService", "Failed to start PullMessagesWorker on connect")
                 }
             }
+            onEvent = { event, data ->
+                Log.d("SSEForegroundService", "$event: $data")
+                try {
+                    processEvent(event, data)
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    logsService.insert(LogEntry.Priority.ERROR, "SSEForegroundService", "Failed to process event", mapOf("event" to event, "data" to data))
+                }
+            }
+        }
     }
     private val sseManager by sseManagerDelegate
 
     override fun onCreate() {
         super.onCreate()
-
-        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
-        if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
-            stopSelf()
-            return
-        }
-
-        if (!wakeLock.isHeld) {
-            wakeLock.acquire()
-        }
-        if (!wifiLock.isHeld) {
-            wifiLock.acquire()
-        }
+        // KHÔNG dừng service ở đây để tránh lỗi ForegroundServiceDidNotStartInTimeException
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
+        // Kiểm tra an toàn
         if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
+            // BẮT BUỘC: Phải gọi startForeground trước khi stopSelf để không bị Android kill app
+            val notification = notificationsSvc.makeNotification(
+                this,
+                NotificationsService.NOTIFICATION_ID_REALTIME_EVENTS,
+                "Chưa cấu hình máy chủ hoặc chưa đăng ký thiết bị"
+            )
+            startForeground(NotificationsService.NOTIFICATION_ID_REALTIME_EVENTS, notification)
             stopSelf()
             return START_NOT_STICKY
         }
+
+        if (!wakeLock.isHeld) wakeLock.acquire()
+        if (!wifiLock.isHeld) wifiLock.acquire()
 
         val notification = notificationsSvc.makeNotification(
             this,
             NotificationsService.NOTIFICATION_ID_REALTIME_EVENTS,
             getString(R.string.listening_to_the_server_events)
         )
-
         startForeground(NotificationsService.NOTIFICATION_ID_REALTIME_EVENTS, notification)
-
         sseManager.connect()
 
         return super.onStartCommand(intent, flags, startId)
     }
 
-    override fun onBind(intent: Intent): IBinder? {
-        return null
-    }
+    override fun onBind(intent: Intent): IBinder? = null
 
     private fun processEvent(event: String?, data: String) {
         val type = try {
-            event?.let { ExternalEventType.valueOf(it) }
-                ?: ExternalEventType.MessageEnqueued
+            event?.let { ExternalEventType.valueOf(it) } ?: ExternalEventType.MessageEnqueued
         } catch (e: Throwable) {
             throw RuntimeException("Unknown event type: $event", e)
         }
-
-        eventsRouter.route(
-            ExternalEvent(
-                type = type,
-                data = data
-            )
-        )
+        eventsRouter.route(ExternalEvent(type = type, data = data))
     }
 
     override fun onDestroy() {
-        // ✅ SỬA: Chỉ gọi disconnect() nếu sseManager ĐÃ ĐƯỢC KHỞI TẠO.
-        // Nếu bị stopSelf() từ onCreate() (do thiếu token), nó chưa được khởi tạo.
         if (sseManagerDelegate.isInitialized()) {
             sseManager.disconnect()
         }
-
-        if (wifiLock.isHeld) {
-            wifiLock.release()
-        }
-        if (wakeLock.isHeld) {
-            wakeLock.release()
-        }
+        if (wifiLock.isHeld) wifiLock.release()
+        if (wakeLock.isHeld) wakeLock.release()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -159,21 +122,18 @@ class SSEForegroundService : Service() {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
-
         super.onDestroy()
     }
 
     companion object {
         fun start(context: Context) {
             val intent = Intent(context, SSEForegroundService::class.java)
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
             }
         }
-
         fun stop(context: Context) {
             context.stopService(Intent(context, SSEForegroundService::class.java))
         }
