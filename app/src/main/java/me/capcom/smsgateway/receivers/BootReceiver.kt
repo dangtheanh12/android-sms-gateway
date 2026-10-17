@@ -11,14 +11,15 @@ import org.koin.core.component.inject
 
 class BootReceiver : BroadcastReceiver(), KoinComponent {
 
-    // ✅ THÊM: Inject GatewaySettings để kiểm tra server URL
+    // Inject GatewaySettings để kiểm tra server URL và token
     private val settings: GatewaySettings by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         if (!events.contains(intent.action)) return
 
-        // ✅ GUARD: Nếu chưa cấu hình server URL, không khởi động orchestrator
-        if (settings.serverUrl.isNullOrEmpty()) {
+        // ✅ GUARD: Kiểm tra cả serverUrl VÀ token.
+        // Nếu thiếu 1 trong 2 (chưa cấu hình hoặc chưa đăng ký), không khởi động orchestrator
+        if (settings.serverUrl.isNullOrEmpty() || settings.registrationInfo?.token.isNullOrEmpty()) {
             return
         }
 
